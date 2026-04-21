@@ -28,6 +28,7 @@ from typing import List, Dict
 
 from openai import AsyncOpenAI
 from dotenv import load_dotenv
+from vector_store import make_chunk_id
 
 load_dotenv()
 
@@ -216,7 +217,7 @@ def _load_doc_chunks() -> List[Dict]:
             text = raw[start:end].strip()
             if text:
                 chunks.append({
-                    "id": f"{source}__chunk_{idx:03d}",
+                    "id": make_chunk_id(source, idx),
                     "text": text,
                     "source": source,
                 })

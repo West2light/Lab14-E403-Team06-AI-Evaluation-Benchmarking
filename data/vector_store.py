@@ -32,6 +32,18 @@ def _get_collection():
     return client.get_or_create_collection(name=CHROMA_COLLECTION, embedding_function=ef)
 
 
+def _slugify(source: str) -> str:
+    """Convert source path to a ChromaDB-safe ID prefix (alphanumeric + dots + dashes only)."""
+    slug = re.sub(r"[^a-zA-Z0-9._-]", "-", source)
+    slug = re.sub(r"-{2,}", "-", slug).strip("-")
+    return slug
+
+
+def make_chunk_id(source: str, idx: int) -> str:
+    """Canonical chunk ID used by both vector_store and synthetic_gen."""
+    return f"{_slugify(source)}__chunk_{idx:03d}"
+
+
 def _chunk_text(text: str, source: str) -> List[Dict]:
     """Split text into overlapping chunks, return list of {id, text, source}."""
     chunks = []
@@ -41,8 +53,7 @@ def _chunk_text(text: str, source: str) -> List[Dict]:
         end = start + CHUNK_SIZE
         chunk_text = text[start:end].strip()
         if chunk_text:
-            chunk_id = f"{source}__chunk_{idx:03d}"
-            chunks.append({"id": chunk_id, "text": chunk_text, "source": source})
+            chunks.append({"id": make_chunk_id(source, idx), "text": chunk_text, "source": source})
             idx += 1
         start += CHUNK_SIZE - CHUNK_OVERLAP
     return chunks
