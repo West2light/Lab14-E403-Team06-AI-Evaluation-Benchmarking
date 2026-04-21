@@ -6,6 +6,9 @@
 
 ## 1. Engineering Contribution (15 điểm)
 
+https://github.com/West2light/Lab14-E403-Team06-AI-Evaluation-Benchmarking/commit/b899b59039bf42e6fa6b3b905380a0af96ca200b
+https://github.com/West2light/Lab14-E403-Team06-AI-Evaluation-Benchmarking/commit/2bb5919a632c5c387035b923eda8656fcd5cc386
+
 ### 1.1. Xây dựng Multi-Judge Consensus Engine
 
 Tôi phụ trách triển khai phần `engine/llm_judge.py`, thay thế judge mock ban đầu bằng hệ thống đánh giá có 2 model judge:
