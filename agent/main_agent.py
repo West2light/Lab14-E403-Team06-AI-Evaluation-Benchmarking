@@ -8,6 +8,12 @@ from typing import Any, Dict, List, Sequence
 
 from dotenv import load_dotenv
 
+import sys
+
+DATA_DIR = Path(__file__).resolve().parents[1] / "data"
+if str(DATA_DIR) not in sys.path:
+    sys.path.insert(0, str(DATA_DIR))
+
 
 DEFAULT_KNOWLEDGE_PATH = Path("data/golden_set.jsonl")
 DEFAULT_MODEL = "gpt-4o-mini"
@@ -103,6 +109,47 @@ class MainAgent:
         return chunks
 
     def retrieve(self, question: str) -> List[RetrievedChunk]:
+        scored_chunks = self._retrieve_from_chroma(question)
+        if not scored_chunks:
+            scored_chunks = self._retrieve_from_golden_set(question)
+
+        if self.version == "v1":
+            return self._select_buggy_retrieval(scored_chunks)
+
+        return [item for item in scored_chunks[: self.top_k] if item.score > 0]
+
+    def _retrieve_from_chroma(self, question: str) -> List[RetrievedChunk]:
+        try:
+            from vector_store import ingest_documents, retrieve as chroma_retrieve
+
+            ingest_documents(force=False)
+            hits = chroma_retrieve(question, top_k=self.top_k + 1)
+        except Exception:
+            return []
+
+        retrieved = []
+        for hit in hits:
+            distance = float(hit.get("distance", 0.0))
+            score = 1.0 / (1.0 + max(distance, 0.0))
+            retrieved.append(
+                RetrievedChunk(
+                    chunk=KnowledgeChunk(
+                        chunk_id=hit["id"],
+                        question="",
+                        expected_answer="",
+                        context=hit.get("text", ""),
+                        metadata={
+                            "source": hit.get("source", ""),
+                            "distance": distance,
+                            "retriever": "chroma_db",
+                        },
+                    ),
+                    score=score,
+                )
+            )
+        return retrieved
+
+    def _retrieve_from_golden_set(self, question: str) -> List[RetrievedChunk]:
         query_tokens = _tokens(question)
         if not query_tokens:
             return [
@@ -128,11 +175,7 @@ class MainAgent:
             scored_chunks.append(RetrievedChunk(chunk=chunk, score=score))
 
         scored_chunks.sort(key=lambda item: item.score, reverse=True)
-
-        if self.version == "v1":
-            return self._select_buggy_retrieval(scored_chunks)
-
-        return [item for item in scored_chunks[: self.top_k] if item.score > 0]
+        return scored_chunks
 
     def _select_buggy_retrieval(self, scored_chunks: List[RetrievedChunk]) -> List[RetrievedChunk]:
         wrong_chunks = [item for item in scored_chunks if item.score > 0][1 : self.top_k + 1]
@@ -293,7 +336,7 @@ Question:
                 "same_generation_path_as_v2",
             ]
         return [
-            "top_3_context_retrieval",
+            "chroma_db_vector_retrieval",
             "question_match_reranking",
             "grounded_low_temperature_prompt",
             "high_confidence_expected_answer_fallback",
