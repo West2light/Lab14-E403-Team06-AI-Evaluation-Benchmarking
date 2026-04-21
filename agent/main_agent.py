@@ -79,6 +79,16 @@ class MainAgent:
         self.api_key = os.getenv("OPENAI_API_KEY")
         self.top_k = top_k if top_k is not None else 3
         self.knowledge_base = self._load_knowledge_base()
+        self._chroma_retrieve, self._chroma_init_error = self._init_chroma_retriever()
+
+    def _init_chroma_retriever(self):
+        try:
+            from vector_store import ingest_documents, retrieve as chroma_retrieve
+
+            ingest_documents(force=False)
+            return chroma_retrieve, None
+        except Exception as exc:
+            return None, str(exc) or exc.__class__.__name__
 
     def _load_knowledge_base(self) -> List[KnowledgeChunk]:
         if not self.knowledge_path.exists():
@@ -136,11 +146,11 @@ class MainAgent:
         return selected_chunks, retrieval_backend, retrieval_fallback_used, retrieval_error
 
     def _retrieve_from_chroma(self, question: str) -> tuple[List[RetrievedChunk], str | None]:
-        try:
-            from vector_store import ingest_documents, retrieve as chroma_retrieve
+        if self._chroma_retrieve is None:
+            return [], self._chroma_init_error
 
-            ingest_documents(force=False)
-            hits = chroma_retrieve(question, top_k=self.top_k + 1)
+        try:
+            hits = self._chroma_retrieve(question, top_k=max(self.top_k * 4, 12))
         except Exception as exc:
             return [], str(exc) or exc.__class__.__name__
 
@@ -195,7 +205,8 @@ class MainAgent:
         return scored_chunks
 
     def _select_buggy_retrieval(self, scored_chunks: List[RetrievedChunk]) -> List[RetrievedChunk]:
-        wrong_chunks = [item for item in scored_chunks if item.score > 0][1 : self.top_k + 1]
+        candidates = [item for item in scored_chunks if item.score > 0]
+        wrong_chunks = list(reversed(candidates))[: self.top_k]
         if wrong_chunks:
             return wrong_chunks
         if len(scored_chunks) > 1:

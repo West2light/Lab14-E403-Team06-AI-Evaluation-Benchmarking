@@ -329,7 +329,10 @@ class LLMJudge:
         passes = [result.passed for result in judge_results]
         score_gap = max(scores) - min(scores) if scores else 0.0
         has_conflict = (len(set(passes)) > 1) or score_gap >= CONFLICT_SCORE_GAP
-        agreement = 1.0 if not has_conflict and score_gap <= 1.0 else 0.0
+
+        pass_agreement = 1.0 if len(set(passes)) <= 1 else 0.5
+        score_agreement = max(0.0, 1.0 - (score_gap / CONFLICT_SCORE_GAP))
+        agreement = round((pass_agreement * 0.6) + (score_agreement * 0.4), 4)
 
         if has_conflict:
             final_score = min(scores)

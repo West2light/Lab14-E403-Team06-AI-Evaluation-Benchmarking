@@ -1,0 +1,119 @@
+{
+  "metadata": {
+    "total": 66,
+    "version": "Agent_V2_Optimized",
+    "timestamp": "2026-04-21 19:03:01",
+    "versions_compared": [
+      "V1",
+      "V2"
+    ]
+  },
+  "metrics": {
+    "avg_score": 2.9686,
+    "pass_rate": 0.4091,
+    "agreement_rate": 0.7268,
+    "avg_hit_rate": 0.6923,
+    "hit_rate": 0.6923,
+    "avg_mrr": 0.6496,
+    "retrieval_evaluated": 39,
+    "failed_cases": 0,
+    "failure_rate": 0.0,
+    "retry_count_total": 0,
+    "avg_latency": 12.8693,
+    "total_runtime": 361.8452,
+    "total_tokens": 20251,
+    "avg_tokens": 306.8333,
+    "judge_models": [
+      "gemini:gemini-2.5-flash",
+      "openai:gpt-4o-mini"
+    ],
+    "retrieval_backend_counts": {
+      "chroma": 66
+    },
+    "retrieval_fallback_cases": 0
+  },
+  "v1_metrics": {
+    "avg_score": 2.2247,
+    "pass_rate": 0.0,
+    "agreement_rate": 0.7035,
+    "avg_hit_rate": 0.1026,
+    "hit_rate": 0.1026,
+    "avg_mrr": 0.0897,
+    "retrieval_evaluated": 39,
+    "failed_cases": 0,
+    "failure_rate": 0.0,
+    "retry_count_total": 0,
+    "avg_latency": 16.9872,
+    "total_runtime": 455.3136,
+    "total_tokens": 24872,
+    "avg_tokens": 376.8485,
+    "judge_models": [
+      "gemini:gemini-2.5-flash",
+      "openai:gpt-4o-mini"
+    ],
+    "retrieval_backend_counts": {
+      "chroma": 66
+    },
+    "retrieval_fallback_cases": 0
+  },
+  "regression": {
+    "v1": {
+      "avg_score": 2.2247,
+      "pass_rate": 0.0,
+      "agreement_rate": 0.7035,
+      "avg_hit_rate": 0.1026,
+      "hit_rate": 0.1026,
+      "avg_mrr": 0.0897,
+      "retrieval_evaluated": 39,
+      "failed_cases": 0,
+      "failure_rate": 0.0,
+      "retry_count_total": 0,
+      "avg_latency": 16.9872,
+      "total_runtime": 455.3136,
+      "total_tokens": 24872,
+      "avg_tokens": 376.8485,
+      "judge_models": [
+        "gemini:gemini-2.5-flash",
+        "openai:gpt-4o-mini"
+      ],
+      "retrieval_backend_counts": {
+        "chroma": 66
+      },
+      "retrieval_fallback_cases": 0
+    },
+    "v2": {
+      "avg_score": 2.9686,
+      "pass_rate": 0.4091,
+      "agreement_rate": 0.7268,
+      "avg_hit_rate": 0.6923,
+      "hit_rate": 0.6923,
+      "avg_mrr": 0.6496,
+      "retrieval_evaluated": 39,
+      "failed_cases": 0,
+      "failure_rate": 0.0,
+      "retry_count_total": 0,
+      "avg_latency": 12.8693,
+      "total_runtime": 361.8452,
+      "total_tokens": 20251,
+      "avg_tokens": 306.8333,
+      "judge_models": [
+        "gemini:gemini-2.5-flash",
+        "openai:gpt-4o-mini"
+      ],
+      "retrieval_backend_counts": {
+        "chroma": 66
+      },
+      "retrieval_fallback_cases": 0
+    },
+    "delta": {
+      "avg_score": 0.7439,
+      "avg_hit_rate": 0.5897,
+      "avg_mrr": 0.5599,
+      "agreement_rate": 0.0233,
+      "avg_latency": -4.1179,
+      "failed_cases": 0
+    },
+    "decision": "APPROVE",
+    "gate_reasons": []
+  }
+}

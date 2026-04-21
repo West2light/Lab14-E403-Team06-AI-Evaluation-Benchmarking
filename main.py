@@ -202,9 +202,13 @@ async def main():
     print(f"V1 Score: {v1_summary['metrics']['avg_score']}")
     print(f"V2 Score: {v2_summary['metrics']['avg_score']}")
     print(f"Delta: {'+' if delta >= 0 else ''}{delta:.2f}")
+    print(f"V1 Hit Rate: {v1_summary['metrics']['avg_hit_rate']}")
     print(f"V2 Hit Rate: {v2_summary['metrics']['avg_hit_rate']}")
+    print(f"V1 MRR: {v1_summary['metrics']['avg_mrr']}")
     print(f"V2 MRR: {v2_summary['metrics']['avg_mrr']}")
+    print(f"V1 Agreement: {v1_summary['metrics']['agreement_rate']}")
     print(f"V2 Agreement: {v2_summary['metrics']['agreement_rate']}")
+    print(f"V1 Failed Cases: {v1_summary['metrics']['failed_cases']}")
     print(f"V2 Failed Cases: {v2_summary['metrics']['failed_cases']}")
 
     report_summary = {
