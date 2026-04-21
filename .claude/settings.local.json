@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(\"e:/VinAI/Ex14/Lab14-E403-Team06-AI-Evaluation-Benchmarking/venv/Scripts/python.exe\" \"e:/VinAI/Ex14/Lab14-E403-Team06-AI-Evaluation-Benchmarking/main.py\")",
+      "Bash(python main.py)",
+      "Bash(./venv/Scripts/python.exe -m py_compile main.py agent/main_agent.py engine/runner.py check_lab.py)",
+      "Bash(./venv/Scripts/python.exe main.py)",
+      "Bash(./venv/Scripts/python.exe check_lab.py)"
+    ]
+  }
+}

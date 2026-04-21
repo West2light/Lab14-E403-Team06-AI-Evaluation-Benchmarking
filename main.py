@@ -1,13 +1,21 @@
 import asyncio
 import json
 import os
+import sys
 import time
-from typing import Dict, List
+from collections import Counter
+from typing import Any, Dict, List
 
 from agent.main_agent import AgentV1, AgentV2
 from engine.llm_judge import LLMJudge
 from engine.retrieval_eval import RetrievalEvaluator
 from engine.runner import BenchmarkRunner
+
+
+MIN_AGREEMENT_RATE = 0.5
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
 
 
 def _tokens(text: str) -> set[str]:
@@ -26,7 +34,7 @@ class ExpertEvaluator:
     def __init__(self):
         self.retrieval_evaluator = RetrievalEvaluator(top_k=3)
 
-    async def score(self, case: Dict, resp: Dict) -> Dict:
+    async def score(self, case: Dict[str, Any], resp: Dict[str, Any]) -> Dict[str, Any]:
         expected_ids: List[str] = (
             case.get("ground_truth_doc_ids")
             or case.get("expected_retrieval_ids")
@@ -60,6 +68,96 @@ class ExpertEvaluator:
         }
 
 
+def _safe_average(values: List[float]) -> float:
+    return round(sum(values) / len(values), 4) if values else 0.0
+
+
+def _aggregate_results(agent_version: str, results: List[Dict[str, Any]], elapsed_seconds: float) -> Dict[str, Any]:
+    total = len(results)
+    if total == 0:
+        return {
+            "metadata": {
+                "version": agent_version,
+                "total": 0,
+                "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+            },
+            "metrics": {},
+        }
+
+    score_values = [float(result["judge"]["final_score"]) for result in results]
+    agreement_values = [float(result["judge"].get("agreement_rate", 0.0)) for result in results]
+    pass_count = sum(1 for result in results if result.get("status") == "pass")
+    failed_cases = [result for result in results if result.get("status") == "error"]
+    retry_count_total = sum(max(int(result.get("attempts", 1)) - 1, 0) for result in results)
+
+    retrieval_results = [result for result in results if result.get("has_ground_truth")]
+    hit_rate_values = [float(result["ragas"].get("hit_rate", 0.0)) for result in retrieval_results]
+    mrr_values = [float(result["ragas"].get("mrr", 0.0)) for result in retrieval_results]
+
+    latency_values = [float(result.get("latency", 0.0)) for result in results]
+    token_values = [int(result.get("tokens_used", 0)) for result in results]
+
+    backend_counts = Counter(result.get("retrieval_backend", "none") for result in results)
+    judge_models = sorted(
+        {
+            model
+            for result in results
+            for model in result.get("judge", {}).get("judge_models", [])
+        }
+    )
+
+    return {
+        "metadata": {
+            "version": agent_version,
+            "total": total,
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+        },
+        "metrics": {
+            "avg_score": _safe_average(score_values),
+            "pass_rate": round(pass_count / total, 4),
+            "agreement_rate": _safe_average(agreement_values),
+            "avg_hit_rate": _safe_average(hit_rate_values),
+            "hit_rate": _safe_average(hit_rate_values),
+            "avg_mrr": _safe_average(mrr_values),
+            "retrieval_evaluated": len(retrieval_results),
+            "failed_cases": len(failed_cases),
+            "failure_rate": round(len(failed_cases) / total, 4),
+            "retry_count_total": retry_count_total,
+            "avg_latency": _safe_average(latency_values),
+            "total_runtime": round(elapsed_seconds, 4),
+            "total_tokens": sum(token_values),
+            "avg_tokens": _safe_average([float(value) for value in token_values]),
+            "judge_models": judge_models,
+            "retrieval_backend_counts": dict(backend_counts),
+            "retrieval_fallback_cases": sum(
+                1 for result in results if result.get("retrieval_fallback_used")
+            ),
+        },
+    }
+
+
+def _build_gate(v1_summary: Dict[str, Any], v2_summary: Dict[str, Any]) -> Dict[str, Any]:
+    v1_metrics = v1_summary["metrics"]
+    v2_metrics = v2_summary["metrics"]
+    gate_reasons: List[str] = []
+
+    if v2_metrics["failed_cases"] > 0:
+        gate_reasons.append("V2 has persistent benchmark errors after retry.")
+    if v2_metrics["avg_score"] < v1_metrics["avg_score"]:
+        gate_reasons.append("V2 average judge score regressed versus V1.")
+    if v2_metrics["avg_hit_rate"] < v1_metrics["avg_hit_rate"]:
+        gate_reasons.append("V2 retrieval hit rate regressed versus V1.")
+    if v2_metrics["avg_mrr"] < v1_metrics["avg_mrr"]:
+        gate_reasons.append("V2 retrieval MRR regressed versus V1.")
+    if v2_metrics["agreement_rate"] < MIN_AGREEMENT_RATE:
+        gate_reasons.append("V2 judge agreement is below the minimum threshold.")
+
+    return {
+        "decision": "APPROVE" if not gate_reasons else "BLOCK",
+        "gate_reasons": gate_reasons,
+    }
+
+
 async def run_benchmark_with_results(agent_version: str, agent):
     print(f"🚀 Khởi động Benchmark cho {agent_version}...")
 
@@ -75,25 +173,10 @@ async def run_benchmark_with_results(agent_version: str, agent):
         return None, None
 
     runner = BenchmarkRunner(agent, ExpertEvaluator(), LLMJudge())
+    start_time = time.perf_counter()
     results = await runner.run_all(dataset)
-
-    total = len(results)
-    avg_score = sum(r["judge"]["final_score"] for r in results) / total
-    hit_rate = sum(r["ragas"]["hit_rate"] for r in results) / total
-    agreement_rate = sum(r["judge"]["agreement_rate"] for r in results) / total
-
-    summary = {
-        "metadata": {
-            "version": agent_version,
-            "total": total,
-            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-        },
-        "metrics": {
-            "avg_score": avg_score,
-            "hit_rate": hit_rate,
-            "agreement_rate": agreement_rate,
-        },
-    }
+    elapsed_seconds = time.perf_counter() - start_time
+    summary = _aggregate_results(agent_version, results, elapsed_seconds)
     return results, summary
 
 
@@ -112,11 +195,17 @@ async def main():
         print("❌ Không thể chạy Benchmark. Kiểm tra lại data/golden_set.jsonl.")
         return
 
-    print("\n📊 --- KẾT QUẢ SO SÁNH (REGRESSION) ---")
+    gate = _build_gate(v1_summary, v2_summary)
     delta = v2_summary["metrics"]["avg_score"] - v1_summary["metrics"]["avg_score"]
+
+    print("\n📊 --- KẾT QUẢ SO SÁNH (REGRESSION) ---")
     print(f"V1 Score: {v1_summary['metrics']['avg_score']}")
     print(f"V2 Score: {v2_summary['metrics']['avg_score']}")
     print(f"Delta: {'+' if delta >= 0 else ''}{delta:.2f}")
+    print(f"V2 Hit Rate: {v2_summary['metrics']['avg_hit_rate']}")
+    print(f"V2 MRR: {v2_summary['metrics']['avg_mrr']}")
+    print(f"V2 Agreement: {v2_summary['metrics']['agreement_rate']}")
+    print(f"V2 Failed Cases: {v2_summary['metrics']['failed_cases']}")
 
     report_summary = {
         "metadata": {
@@ -125,23 +214,32 @@ async def main():
             "timestamp": v2_summary["metadata"]["timestamp"],
             "versions_compared": ["V1", "V2"],
         },
-        "metrics": {
-            "avg_score": v2_summary["metrics"]["avg_score"],
-            "hit_rate": v2_summary["metrics"]["hit_rate"],
-            "agreement_rate": v2_summary["metrics"]["agreement_rate"],
-        },
+        "metrics": v2_summary["metrics"],
+        "v1_metrics": v1_summary["metrics"],
         "regression": {
-            "v1": {
-                "score": v1_summary["metrics"]["avg_score"],
-                "hit_rate": v1_summary["metrics"]["hit_rate"],
-                "judge_agreement": v1_summary["metrics"]["agreement_rate"],
+            "v1": v1_summary["metrics"],
+            "v2": v2_summary["metrics"],
+            "delta": {
+                "avg_score": round(delta, 4),
+                "avg_hit_rate": round(
+                    v2_summary["metrics"]["avg_hit_rate"] - v1_summary["metrics"]["avg_hit_rate"],
+                    4,
+                ),
+                "avg_mrr": round(
+                    v2_summary["metrics"]["avg_mrr"] - v1_summary["metrics"]["avg_mrr"],
+                    4,
+                ),
+                "agreement_rate": round(
+                    v2_summary["metrics"]["agreement_rate"] - v1_summary["metrics"]["agreement_rate"],
+                    4,
+                ),
+                "avg_latency": round(
+                    v2_summary["metrics"]["avg_latency"] - v1_summary["metrics"]["avg_latency"],
+                    4,
+                ),
+                "failed_cases": v2_summary["metrics"]["failed_cases"] - v1_summary["metrics"]["failed_cases"],
             },
-            "v2": {
-                "score": v2_summary["metrics"]["avg_score"],
-                "hit_rate": v2_summary["metrics"]["hit_rate"],
-                "judge_agreement": v2_summary["metrics"]["agreement_rate"],
-            },
-            "decision": "APPROVE" if delta > 0 else "BLOCK",
+            **gate,
         },
     }
 
@@ -156,10 +254,12 @@ async def main():
     with open("reports/benchmark_results.json", "w", encoding="utf-8") as f:
         json.dump(report_results, f, ensure_ascii=False, indent=2)
 
-    if delta > 0:
+    if gate["decision"] == "APPROVE":
         print("✅ QUYẾT ĐỊNH: CHẤP NHẬN BẢN CẬP NHẬT (APPROVE)")
     else:
         print("❌ QUYẾT ĐỊNH: TỪ CHỐI (BLOCK RELEASE)")
+        for reason in gate["gate_reasons"]:
+            print(f"- {reason}")
 
 
 if __name__ == "__main__":

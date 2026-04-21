@@ -108,24 +108,41 @@ class MainAgent:
                 )
         return chunks
 
-    def retrieve(self, question: str) -> List[RetrievedChunk]:
-        scored_chunks = self._retrieve_from_chroma(question)
-        if not scored_chunks:
+    def retrieve(self, question: str) -> tuple[List[RetrievedChunk], str, bool, str | None]:
+        chroma_chunks, chroma_error = self._retrieve_from_chroma(question)
+        retrieval_backend = "chroma"
+        retrieval_fallback_used = False
+        retrieval_error = chroma_error
+
+        if chroma_chunks:
+            scored_chunks = chroma_chunks
+        else:
             scored_chunks = self._retrieve_from_golden_set(question)
+            if scored_chunks:
+                retrieval_backend = "golden_fallback"
+                retrieval_fallback_used = True
+            else:
+                retrieval_backend = "none"
 
         if self.version == "v1":
-            return self._select_buggy_retrieval(scored_chunks)
+            selected_chunks = self._select_buggy_retrieval(scored_chunks)
+        else:
+            selected_chunks = [item for item in scored_chunks[: self.top_k] if item.score > 0]
 
-        return [item for item in scored_chunks[: self.top_k] if item.score > 0]
+        if not selected_chunks and retrieval_backend == "golden_fallback":
+            retrieval_backend = "none"
+            retrieval_fallback_used = False
 
-    def _retrieve_from_chroma(self, question: str) -> List[RetrievedChunk]:
+        return selected_chunks, retrieval_backend, retrieval_fallback_used, retrieval_error
+
+    def _retrieve_from_chroma(self, question: str) -> tuple[List[RetrievedChunk], str | None]:
         try:
             from vector_store import ingest_documents, retrieve as chroma_retrieve
 
             ingest_documents(force=False)
             hits = chroma_retrieve(question, top_k=self.top_k + 1)
-        except Exception:
-            return []
+        except Exception as exc:
+            return [], str(exc) or exc.__class__.__name__
 
         retrieved = []
         for hit in hits:
@@ -147,7 +164,7 @@ class MainAgent:
                     score=score,
                 )
             )
-        return retrieved
+        return retrieved, None
 
     def _retrieve_from_golden_set(self, question: str) -> List[RetrievedChunk]:
         query_tokens = _tokens(question)
@@ -191,7 +208,7 @@ class MainAgent:
         return " ".join([chunk.question, chunk.expected_answer, chunk.context])
 
     async def query(self, question: str) -> Dict[str, Any]:
-        retrieved = self.retrieve(question)
+        retrieved, retrieval_backend, retrieval_fallback_used, retrieval_error = self.retrieve(question)
         chunks = [item.chunk for item in retrieved]
         contexts = [chunk.context for chunk in chunks if chunk.context]
         retrieved_ids = [chunk.chunk_id for chunk in chunks]
@@ -208,6 +225,9 @@ class MainAgent:
                 retrieved_scores=[],
                 used_llm=False,
                 fallback_reason="no_relevant_context",
+                retrieval_backend="none",
+                retrieval_fallback_used=False,
+                retrieval_error=retrieval_error,
             )
 
         answer, used_llm, fallback_reason = await self._generate_answer(
@@ -222,6 +242,9 @@ class MainAgent:
             retrieved_scores=[item.score for item in retrieved],
             used_llm=used_llm,
             fallback_reason=fallback_reason,
+            retrieval_backend=retrieval_backend,
+            retrieval_fallback_used=retrieval_fallback_used,
+            retrieval_error=retrieval_error,
         )
 
     async def _generate_answer(
@@ -310,6 +333,9 @@ Question:
         retrieved_scores: Sequence[float],
         used_llm: bool,
         fallback_reason: str | None,
+        retrieval_backend: str,
+        retrieval_fallback_used: bool,
+        retrieval_error: str | None,
     ) -> Dict[str, Any]:
         return {
             "answer": answer,
@@ -324,6 +350,9 @@ Question:
                 "tokens_used": _estimate_tokens(answer, *contexts),
                 "sources": list(retrieved_ids),
                 "retrieval_scores": [round(score, 4) for score in retrieved_scores],
+                "retrieval_backend": retrieval_backend,
+                "retrieval_fallback_used": retrieval_fallback_used,
+                "retrieval_error": retrieval_error,
                 "improvements": self._improvements(),
             },
         }
