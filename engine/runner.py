@@ -29,16 +29,47 @@ class BenchmarkRunner:
         )
 
         return {
-            "case_id": test_case.get("id") or test_case.get("case_id") or test_case["question"],
             "test_case": test_case["question"],
-            "expected_answer": test_case["expected_answer"],
             "agent_response": response["answer"],
-            "retrieved_contexts": response.get("contexts", []),
             "latency": latency,
-            "ragas": ragas_scores,
-            "judge": judge_result,
+            "ragas": {
+                "hit_rate": ragas_scores["retrieval"]["hit_rate"],
+                "mrr": ragas_scores["retrieval"]["mrr"],
+                "faithfulness": ragas_scores["faithfulness"],
+                "relevancy": ragas_scores["relevancy"],
+            },
+            "judge": {
+                "final_score": judge_result["final_score"],
+                "agreement_rate": judge_result["agreement_rate"],
+                "individual_results": self._format_individual_judges(judge_result),
+                "status": "conflict" if judge_result["has_conflict"] else "consensus",
+            },
             "status": "pass" if judge_result["pass"] else "fail",
         }
+
+    def _format_judge_reasoning(self, judge_result: Dict) -> str:
+        individual_results = judge_result.get("individual_results") or []
+        if not individual_results:
+            return judge_result["reasoning"]
+
+        reasons = []
+        for result in individual_results:
+            provider = result.get("provider", "judge")
+            model = result.get("model", "unknown-model")
+            score = result.get("score", "N/A")
+            reason = result.get("reason", "")
+            reasons.append(f"{provider} ({model}) score {score}: {reason}")
+        return " | ".join(reasons)
+
+    def _format_individual_judges(self, judge_result: Dict) -> Dict:
+        formatted = {}
+        for result in judge_result.get("individual_results") or []:
+            model = result.get("model", "unknown-model")
+            formatted[model] = {
+                "score": result.get("score", 0),
+                "reasoning": result.get("reason", ""),
+            }
+        return formatted
 
     async def run_all(self, dataset: List[Dict], batch_size: int = 5) -> List[Dict]:
         results = []

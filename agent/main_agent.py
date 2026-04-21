@@ -41,9 +41,9 @@ class MainAgent:
     """
     Benchmark agent with two explicit versions.
 
-    V1 is intentionally weak: simple lexical retrieval, top-1 context, no LLM
-    call, and a short extractive fallback answer. It exists only as a baseline
-    for regression comparison.
+    V1 uses the same answer-generation path as V2, but its retrieval stage is
+    intentionally faulty: it selects the wrong/next-best chunk to simulate a
+    retrieval regression.
 
     V2 is the optimized agent: broader retrieval, question-match reranking,
     stronger grounded prompt, and a better offline fallback that uses the best
@@ -64,14 +64,14 @@ class MainAgent:
 
         self.version = normalized_version
         self.name = (
-            "RAGSupportAgent-v1-baseline"
+            "RAGSupportAgent-v1-buggy-retrieval"
             if self.version == "v1"
             else "RAGSupportAgent-v2-optimized"
         )
         self.knowledge_path = Path(knowledge_path)
         self.model = model or os.getenv("AGENT_MODEL", DEFAULT_MODEL)
         self.api_key = os.getenv("OPENAI_API_KEY")
-        self.top_k = top_k if top_k is not None else (1 if self.version == "v1" else 3)
+        self.top_k = top_k if top_k is not None else 3
         self.knowledge_base = self._load_knowledge_base()
 
     def _load_knowledge_base(self) -> List[KnowledgeChunk]:
@@ -128,7 +128,19 @@ class MainAgent:
             scored_chunks.append(RetrievedChunk(chunk=chunk, score=score))
 
         scored_chunks.sort(key=lambda item: item.score, reverse=True)
+
+        if self.version == "v1":
+            return self._select_buggy_retrieval(scored_chunks)
+
         return [item for item in scored_chunks[: self.top_k] if item.score > 0]
+
+    def _select_buggy_retrieval(self, scored_chunks: List[RetrievedChunk]) -> List[RetrievedChunk]:
+        wrong_chunks = [item for item in scored_chunks if item.score > 0][1 : self.top_k + 1]
+        if wrong_chunks:
+            return wrong_chunks
+        if len(scored_chunks) > 1:
+            return [scored_chunks[-1]]
+        return []
 
     def _build_searchable_text(self, chunk: KnowledgeChunk) -> str:
         if self.version == "v1":
@@ -136,16 +148,6 @@ class MainAgent:
         return " ".join([chunk.question, chunk.expected_answer, chunk.context])
 
     async def query(self, question: str) -> Dict[str, Any]:
-        if self.version == "v1":
-            return self._build_response(
-                answer="Toi chua co du thong tin de tra loi cau hoi nay.",
-                contexts=[],
-                retrieved_ids=[],
-                retrieved_scores=[],
-                used_llm=False,
-                fallback_reason="v1_weak_baseline",
-            )
-
         retrieved = self.retrieve(question)
         chunks = [item.chunk for item in retrieved]
         contexts = [chunk.context for chunk in chunks if chunk.context]
@@ -185,9 +187,6 @@ class MainAgent:
         contexts: Sequence[str],
         retrieved: Sequence[RetrievedChunk],
     ) -> tuple[str, bool, str | None]:
-        if self.version == "v1":
-            return self._fallback_answer(contexts, retrieved), False, "v1_baseline_no_llm"
-
         if not self.api_key:
             return self._fallback_answer(contexts, retrieved), False, "missing_openai_api_key"
 
@@ -288,7 +287,11 @@ Question:
 
     def _improvements(self) -> List[str]:
         if self.version == "v1":
-            return ["weak_baseline", "top_1_context_retrieval", "no_llm_generation"]
+            return [
+                "buggy_retrieval_baseline",
+                "selects_next_best_or_wrong_chunk",
+                "same_generation_path_as_v2",
+            ]
         return [
             "top_3_context_retrieval",
             "question_match_reranking",
