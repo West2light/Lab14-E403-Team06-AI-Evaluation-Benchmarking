@@ -14,7 +14,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 CHROMA_DB_PATH = os.getenv("CHROMA_DB_PATH", "./chroma_db")
-CHROMA_COLLECTION = os.getenv("CHROMA_COLLECTION", "kb")
+_raw_collection = os.getenv("CHROMA_COLLECTION", "kb")
+CHROMA_COLLECTION = _raw_collection if len(_raw_collection) >= 3 else f"{_raw_collection}_col"
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 DOCS_DIR = Path(__file__).parent / "docs"
 
